@@ -26,12 +26,14 @@ class NetworkScanner {
             "\r\n"
     }
 
+    data class TvDevice(val ip: String, val locationUrl: String)
+
     /**
      * Discovers TVs and other UPnP devices on the local network.
      * Note: This must be called from a coroutine (e.g. viewModelScope)
      */
-    suspend fun discoverDevices(): List<String> = withContext(Dispatchers.IO) {
-        val devicesFound = mutableListOf<String>()
+    suspend fun discoverDevices(): List<TvDevice> = withContext(Dispatchers.IO) {
+        val devicesFound = mutableListOf<TvDevice>()
         var socket: DatagramSocket? = null
         
         try {
@@ -57,8 +59,15 @@ class NetworkScanner {
                     val senderIp = receivePacket.address.hostAddress
                     Log.d(TAG, "Received response from $senderIp:\n$response")
                     
-                    if (senderIp != null && !devicesFound.contains(senderIp)) {
-                        devicesFound.add(senderIp)
+                    // Extract LOCATION header
+                    val locationMatch = Regex("LOCATION:\\s*(http://[^\\r\\n]+)", RegexOption.IGNORE_CASE).find(response)
+                    val locationUrl = locationMatch?.groupValues?.get(1)
+                    
+                    if (senderIp != null && locationUrl != null) {
+                        val existing = devicesFound.find { it.ip == senderIp }
+                        if (existing == null) {
+                            devicesFound.add(TvDevice(senderIp, locationUrl))
+                        }
                     }
                 } catch (e: SocketTimeoutException) {
                     // Expected timeout when no more devices reply within TIMEOUT_MS

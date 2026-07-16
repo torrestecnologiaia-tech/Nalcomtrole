@@ -124,7 +124,19 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         if (_isScanning.value) return
         _isScanning.value = true
         viewModelScope.launch {
-            delay(2500) // Simulate scanning
+            val scanner = com.example.network.NetworkScanner()
+            val discovered = scanner.discoverDevices()
+            
+            for (device in discovered) {
+                repository.insertDevice(
+                    TvDevice(
+                        name = "Smart TV ${device.ip}",
+                        brand = "Universal",
+                        ipAddress = device.ip,
+                        connectionType = "UPNP:${device.locationUrl}"
+                    )
+                )
+            }
             _isScanning.value = false
         }
     }
@@ -186,6 +198,23 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             if (device != null) {
                 repository.addHistory(device.name, command)
+                
+                if (device.connectionType.startsWith("UPNP:")) {
+                    val controlUrl = device.connectionType.removePrefix("UPNP:")
+                    val driver = com.example.network.UpnpTvDriver(controlUrl)
+                    // Fire and forget networking
+                    launch(Dispatchers.IO) {
+                        when (command) {
+                            "VOLUME_UP" -> driver.volumeUp()
+                            "VOLUME_DOWN" -> driver.volumeDown()
+                            "MUTE" -> driver.setMute(true)
+                            "PLAY", "OPEN_NETFLIX", "OPEN_YOUTUBE" -> driver.play()
+                            "PAUSE" -> driver.pause()
+                            "STOP" -> driver.stop()
+                            else -> Log.d("TvViewModel", "Command $command not supported by UPnP driver")
+                        }
+                    }
+                }
             } else {
                 // If no TV connected, log to a generic historical log
                 repository.addHistory("Controle Sem TV", command)
